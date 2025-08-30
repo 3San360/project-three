@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-username/automated-code-review-action.git"
+    "url": "git+https://github.com/Seconize/automated-code-review-action.git"
   },
   "keywords": [
     "github-action",
@@ -22,12 +22,12 @@
     "code-quality",
     "best-practices"
   ],
-  "author": "Your Name",
+  "author": "Seconize",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/your-username/automated-code-review-action/issues"
+    "url": "https://github.com/Seconize/automated-code-review-action/issues"
   },
-  "homepage": "https://github.com/your-username/automated-code-review-action#readme",
+  "homepage": "https://github.com/Seconize/automated-code-review-action#readme",
   "devDependencies": {
     "eslint": "^8.57.0"
   }
