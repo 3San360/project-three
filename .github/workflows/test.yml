@@ -1,0 +1,230 @@
+name: Test Code Review Action
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x, 20.x]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: |
+        npm ci
+        cd .github/actions/code-review
+        npm ci
+
+    - name: Run tests
+      run: npm test
+
+    - name: Run analyzer tests
+      run: npm run test:analyzer
+
+    - name: Test action functionality
+      run: |
+        # Create test files for analysis
+        mkdir -p test-files
+        echo 'function bad_function_name() { console.log("test"); }' > test-files/test.js
+        echo 'def bad_function(): print("test")' > test-files/test.py
+        
+        # Test the analyzer directly
+        node scripts/best-practices-analyzer.js '["test-files/test.js", "test-files/test.py"]'
+
+    - name: Lint code
+      run: |
+        npx eslint .github/actions/code-review/index.js
+        npx eslint scripts/best-practices-analyzer.js
+
+    - name: Check action metadata
+      run: |
+        # Validate action.yml files
+        cat .github/workflows/code-review.yml
+        cat .github/actions/code-review/action.yml
+
+    - name: Security audit
+      run: |
+        npm audit --audit-level=moderate
+        cd .github/actions/code-review
+        npm audit --audit-level=moderate
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: |
+        npm ci
+        cd .github/actions/code-review
+        npm ci
+
+    - name: Create test PR files
+      run: |
+        mkdir -p integration-test
+        
+        # JavaScript test file with issues
+        cat > integration-test/example.js << 'EOF'
+        function bad_function_name() {
+          var x = 1;
+          console.log('Debug message that should be flagged');
+          
+          // Very long line that exceeds the maximum length limit and should trigger a line length warning in our analyzer
+          const veryLongVariableNameThatViolatesOurNamingConventionsAndShouldBeDetected = x + 1000 + 2000 + 3000;
+          
+          return veryLongVariableNameThatViolatesOurNamingConventionsAndShouldBeDetected;
+        }
+        
+        class badClassName {
+          constructor() {
+            this.a = 1;
+          }
+        }
+        EOF
+        
+        # Python test file with issues
+        cat > integration-test/example.py << 'EOF'
+        def bad_function():
+            x = 1
+            print("Debug message that should be flagged")
+            
+            # Very long line that exceeds the maximum length limit and should trigger a line length warning
+            very_long_variable_name_that_violates_naming_conventions = x + 1000 + 2000 + 3000
+            
+            return very_long_variable_name_that_violates_naming_conventions
+        
+        class badClassName:
+            def __init__(self):
+                self.a = 1
+        EOF
+
+    - name: Test code analysis
+      run: |
+        # Run the analyzer on test files
+        echo "Testing analyzer..."
+        node scripts/best-practices-analyzer.js '["integration-test/example.js", "integration-test/example.py"]' > analysis-results.json
+        
+        # Verify results
+        cat analysis-results.json
+        
+        # Check that issues were found
+        issues_count=$(cat analysis-results.json | jq '.summary.totalIssues')
+        echo "Found $issues_count issues"
+        
+        if [ "$issues_count" -lt 1 ]; then
+          echo "Error: Expected to find issues but none were detected"
+          exit 1
+        fi
+        
+        echo "✅ Integration test passed - found $issues_count issues as expected"
+
+    - name: Validate action configuration
+      run: |
+        # Test that all required files exist
+        test -f .github/workflows/code-review.yml
+        test -f .github/actions/code-review/action.yml
+        test -f .github/actions/code-review/index.js
+        test -f .github/actions/code-review/package.json
+        test -f scripts/best-practices-analyzer.js
+        test -f .code-review.yml
+        
+        echo "✅ All required files present"
+
+    - name: Performance test
+      run: |
+        # Create larger test files for performance testing
+        mkdir -p perf-test
+        
+        # Generate a larger JavaScript file
+        cat > perf-test/large.js << 'EOF'
+        // Large file for performance testing
+        EOF
+        
+        for i in {1..100}; do
+          echo "function generatedFunction$i() { console.log('Function $i'); return $i; }" >> perf-test/large.js
+        done
+        
+        # Time the analysis
+        echo "Running performance test..."
+        time node scripts/best-practices-analyzer.js '["perf-test/large.js"]' > perf-results.json
+        
+        # Check that it completed successfully
+        cat perf-results.json | jq '.summary'
+        
+        echo "✅ Performance test completed"
+
+  security-test:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: |
+        npm ci
+        cd .github/actions/code-review
+        npm ci
+
+    - name: Test security validations
+      run: |
+        echo "Testing security validations..."
+        
+        # Test directory traversal protection
+        if node scripts/best-practices-analyzer.js '["../../../etc/passwd"]' 2>/dev/null; then
+          echo "❌ Security test failed: Directory traversal not blocked"
+          exit 1
+        fi
+        
+        # Test absolute path protection
+        if node scripts/best-practices-analyzer.js '["/etc/passwd"]' 2>/dev/null; then
+          echo "❌ Security test failed: Absolute path not blocked"
+          exit 1
+        fi
+        
+        # Test unsupported file extension
+        if node scripts/best-practices-analyzer.js '["malicious.exe"]' 2>/dev/null; then
+          echo "❌ Security test failed: Unsupported extension not blocked"
+          exit 1
+        fi
+        
+        echo "✅ Security tests passed"
+
+    - name: Run CodeQL Analysis
+      uses: github/codeql-action/init@v3
+      with:
+        languages: javascript
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3

@@ -22,6 +22,74 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB limit
 const MAX_FUNCTION_LENGTH = 50; // Maximum lines per function
 const MAX_LINE_LENGTH = 120; // Maximum characters per line
 const MIN_VARIABLE_NAME_LENGTH = 2; // Minimum variable name length
+const PERFORMANCE_THRESHOLD_MS = 1000; // Performance warning threshold
+
+// Performance metrics
+class PerformanceMetrics {
+  constructor() {
+    this.startTime = Date.now();
+    this.fileMetrics = new Map();
+    this.totalIssues = 0;
+    this.totalFiles = 0;
+    this.errors = [];
+    this.warnings = [];
+  }
+
+  startFileAnalysis(filePath) {
+    this.fileMetrics.set(filePath, {
+      startTime: Date.now(),
+      issues: 0,
+      size: 0,
+      lines: 0
+    });
+  }
+
+  endFileAnalysis(filePath, issues, fileStats = {}) {
+    const metrics = this.fileMetrics.get(filePath);
+    if (metrics) {
+      metrics.endTime = Date.now();
+      metrics.duration = metrics.endTime - metrics.startTime;
+      metrics.issues = issues.length;
+      metrics.size = fileStats.size || 0;
+      metrics.lines = fileStats.lines || 0;
+      
+      this.totalIssues += issues.length;
+      
+      // Performance warning
+      if (metrics.duration > PERFORMANCE_THRESHOLD_MS) {
+        this.warnings.push(`Slow analysis for ${filePath}: ${metrics.duration}ms`);
+      }
+    }
+    this.totalFiles++;
+  }
+
+  addError(error, filePath = null) {
+    this.errors.push({ error, filePath, timestamp: Date.now() });
+  }
+
+  addWarning(warning, filePath = null) {
+    this.warnings.push({ warning, filePath, timestamp: Date.now() });
+  }
+
+  getSummary() {
+    const totalDuration = Date.now() - this.startTime;
+    const avgTimePerFile = this.totalFiles > 0 ? totalDuration / this.totalFiles : 0;
+    
+    return {
+      totalDuration,
+      totalFiles: this.totalFiles,
+      totalIssues: this.totalIssues,
+      avgTimePerFile: Math.round(avgTimePerFile),
+      avgIssuesPerFile: this.totalFiles > 0 ? (this.totalIssues / this.totalFiles).toFixed(2) : 0,
+      errors: this.errors.length,
+      warnings: this.warnings.length,
+      fileMetrics: Array.from(this.fileMetrics.entries()).map(([path, metrics]) => ({
+        path,
+        ...metrics
+      }))
+    };
+  }
+}
 
 // Supported file extensions and their patterns
 const FILE_PATTERNS = {
@@ -53,8 +121,75 @@ const FILE_PATTERNS = {
       decorator: /@\w+/g,
       lambda: /lambda\s+[^:]*:/g
     }
+  },
+  java: {
+    extensions: ['.java'],
+    patterns: {
+      function: /(?:public|private|protected)?\s*(?:static)?\s*\w+\s+(\w+)\s*\(/g,
+      variable: /(?:public|private|protected)?\s*(?:static)?\s*(?:final)?\s*\w+\s+([a-zA-Z_][a-zA-Z0-9_]*)/g,
+      class: /(?:public|private|protected)?\s*class\s+([A-Z][a-zA-Z0-9_]*)/g,
+      comment: /\/\*[\s\S]*?\*\/|\/\/.*$/gm,
+      import: /import\s+([a-zA-Z_][a-zA-Z0-9_.*]*);/g
+    }
+  },
+  go: {
+    extensions: ['.go'],
+    patterns: {
+      function: /func\s+(\w+)\s*\(/g,
+      variable: /(?:var|:=)\s+([a-zA-Z_][a-zA-Z0-9_]*)/g,
+      struct: /type\s+([A-Z][a-zA-Z0-9_]*)\s+struct/g,
+      comment: /\/\*[\s\S]*?\*\/|\/\/.*$/gm,
+      import: /import\s+"([^"]+)"/g
+    }
+  },
+  rust: {
+    extensions: ['.rs'],
+    patterns: {
+      function: /fn\s+(\w+)\s*\(/g,
+      variable: /let\s+(?:mut\s+)?([a-zA-Z_][a-zA-Z0-9_]*)/g,
+      struct: /struct\s+([A-Z][a-zA-Z0-9_]*)/g,
+      comment: /\/\*[\s\S]*?\*\/|\/\/.*$/gm,
+      macro: /(\w+)!/g
+    }
   }
 };
+
+/**
+ * Enhanced file validation with comprehensive checks
+ * @param {string} filePath - Path to validate
+ * @returns {Object} Validation result
+ */
+function validateFile(filePath) {
+  if (!filePath || typeof filePath !== 'string') {
+    return { valid: false, error: 'Invalid file path type' };
+  }
+  
+  // Prevent directory traversal
+  if (filePath.includes('..') || filePath.includes('~')) {
+    return { valid: false, error: 'Potential directory traversal detected' };
+  }
+  
+  // Ensure it's a relative path
+  if (path.isAbsolute(filePath)) {
+    return { valid: false, error: 'Absolute paths not allowed' };
+  }
+  
+  // Check file extension
+  const ext = path.extname(filePath).toLowerCase();
+  if (!ext) {
+    return { valid: false, error: 'File has no extension' };
+  }
+  
+  // Check for supported extensions
+  const supportedExts = Object.values(FILE_PATTERNS)
+    .flatMap(lang => lang.extensions);
+  
+  if (!supportedExts.includes(ext)) {
+    return { valid: false, error: `Unsupported file extension: ${ext}` };
+  }
+  
+  return { valid: true };
+}
 
 /**
  * Validates file path for security
@@ -62,26 +197,8 @@ const FILE_PATTERNS = {
  * @returns {boolean} True if path is safe
  */
 function isValidFilePath(filePath) {
-  if (!filePath || typeof filePath !== 'string') {
-    return false;
-  }
-  
-  // Prevent directory traversal
-  if (filePath.includes('..') || filePath.includes('~')) {
-    return false;
-  }
-  
-  // Ensure it's a relative path
-  if (path.isAbsolute(filePath)) {
-    return false;
-  }
-  
-  // Check for supported extensions
-  const ext = path.extname(filePath).toLowerCase();
-  const supportedExts = Object.values(FILE_PATTERNS)
-    .flatMap(lang => lang.extensions);
-  
-  return supportedExts.includes(ext);
+  const validation = validateFile(filePath);
+  return validation.valid;
 }
 
 /**
@@ -102,24 +219,92 @@ function getLanguageType(filePath) {
 }
 
 /**
- * Safely reads file content with size validation
+ * Enhanced file reading with comprehensive validation and error handling
  * @param {string} filePath - Path to file
- * @returns {Promise<string|null>} File content or null
+ * @returns {Promise<Object>} Result object with content or error
  */
 async function safeReadFile(filePath) {
   try {
+    // Validate file path first
+    const validation = validateFile(filePath);
+    if (!validation.valid) {
+      return { 
+        success: false, 
+        error: validation.error,
+        filePath 
+      };
+    }
+
+    // Check if file exists
+    try {
+      await fs.access(filePath, fs.constants.F_OK);
+    } catch (accessError) {
+      return { 
+        success: false, 
+        error: `File not accessible: ${accessError.message}`,
+        filePath 
+      };
+    }
+
+    // Get file stats
     const stats = await fs.stat(filePath);
+    
+    // Check if it's actually a file
+    if (!stats.isFile()) {
+      return { 
+        success: false, 
+        error: 'Path is not a file',
+        filePath 
+      };
+    }
     
     // Check file size to prevent memory exhaustion
     if (stats.size > MAX_FILE_SIZE) {
-      console.warn(`File ${filePath} is too large (${stats.size} bytes), skipping`);
-      return null;
+      return { 
+        success: false, 
+        error: `File too large: ${stats.size} bytes (max: ${MAX_FILE_SIZE})`,
+        filePath 
+      };
+    }
+
+    // Check for empty files
+    if (stats.size === 0) {
+      return { 
+        success: false, 
+        error: 'File is empty',
+        filePath 
+      };
     }
     
-    return await fs.readFile(filePath, 'utf8');
+    // Read file content
+    const content = await fs.readFile(filePath, 'utf8');
+    
+    // Validate content
+    if (typeof content !== 'string') {
+      return { 
+        success: false, 
+        error: 'File content is not valid text',
+        filePath 
+      };
+    }
+
+    return { 
+      success: true, 
+      content, 
+      stats: {
+        size: stats.size,
+        modified: stats.mtime,
+        lines: content.split('\n').length
+      },
+      filePath 
+    };
+    
   } catch (error) {
-    console.warn(`Failed to read file ${filePath}: ${error.message}`);
-    return null;
+    return { 
+      success: false, 
+      error: `Unexpected error reading file: ${error.message}`,
+      filePath 
+    };
   }
 }
 
@@ -586,24 +771,45 @@ function analyzeLanguageSpecific(content, langType, filePath) {
 async function analyzeFile(filePath) {
   try {
     // Validate file path
-    if (!isValidFilePath(filePath)) {
-      console.warn(`Invalid or unsupported file path: ${filePath}`);
-      return [];
+    const validation = validateFile(filePath);
+    if (!validation.valid) {
+      return {
+        success: false,
+        error: validation.error,
+        filePath
+      };
     }
     
     const langType = getLanguageType(filePath);
     if (!langType) {
-      return [];
+      return {
+        success: false,
+        error: 'Unsupported file type',
+        filePath
+      };
     }
     
-    const content = await safeReadFile(filePath);
-    if (!content) {
-      return [];
+    // Read file with enhanced error handling
+    const fileResult = await safeReadFile(filePath);
+    if (!fileResult.success) {
+      return {
+        success: false,
+        error: fileResult.error,
+        filePath
+      };
     }
     
-    // Early return for empty or very small files
+    const { content, stats } = fileResult;
+    
+    // Early return for very small files
     if (content.trim().length < 10) {
-      return [];
+      return {
+        success: true,
+        issues: [],
+        language: langType,
+        stats,
+        filePath
+      };
     }
     
     const cleanContent = removeCommentsAndStrings(content, langType);
@@ -622,15 +828,36 @@ async function analyzeFile(filePath) {
       const allIssues = results.flat();
       
       // Sort issues by line number for better readability
-      return allIssues.sort((a, b) => a.line - b.line);
+      const sortedIssues = allIssues.sort((a, b) => a.line - b.line);
+      
+      return {
+        success: true,
+        issues: sortedIssues,
+        language: langType,
+        stats,
+        filePath,
+        analysisMetrics: {
+          totalChecks: analysisPromises.length,
+          contentLength: content.length,
+          cleanedLength: cleanContent.length,
+          linesAnalyzed: content.split('\n').length
+        }
+      };
+      
     } catch (analysisError) {
-      console.error(`Error during analysis of ${filePath}:`, analysisError.message);
-      return [];
+      return {
+        success: false,
+        error: `Analysis error: ${analysisError.message}`,
+        filePath
+      };
     }
     
   } catch (error) {
-    console.error(`Failed to analyze file ${filePath}:`, error.message);
-    return [];
+    return {
+      success: false,
+      error: `Unexpected error: ${error.message}`,
+      filePath
+    };
   }
 }
 
@@ -638,11 +865,14 @@ async function analyzeFile(filePath) {
  * Main entry point
  */
 async function main() {
+  const metrics = new PerformanceMetrics();
+  
   try {
     // Get files from command line argument
     const filesArg = process.argv[2];
     if (!filesArg) {
       console.error('Usage: node best-practices-analyzer.js <files-json>');
+      console.error('Example: node best-practices-analyzer.js \'["src/index.js", "lib/utils.py"]\'');
       process.exit(1);
     }
     
@@ -650,7 +880,8 @@ async function main() {
     try {
       files = JSON.parse(filesArg);
     } catch (error) {
-      console.error('Invalid JSON format for files argument');
+      console.error(`Invalid JSON format for files argument: ${error.message}`);
+      console.error('Expected format: \'["file1.js", "file2.py"]\'');
       process.exit(1);
     }
     
@@ -658,35 +889,111 @@ async function main() {
       console.error('Files argument must be a JSON array');
       process.exit(1);
     }
+
+    if (files.length === 0) {
+      console.error('No files to analyze');
+      process.exit(0);
+    }
     
-    console.error(`Analyzing ${files.length} files...`);
+    console.error(`Starting analysis of ${files.length} files...`);
     
     const allIssues = [];
+    const fileResults = [];
     
-    // Analyze each file
+    // Analyze each file with enhanced error handling
     for (const filePath of files) {
+      metrics.startFileAnalysis(filePath);
+      
       try {
-        const issues = await analyzeFile(filePath);
-        allIssues.push(...issues);
-        console.error(`✓ Analyzed ${filePath} - found ${issues.length} issues`);
+        const result = await analyzeFile(filePath);
+        
+        if (result.success) {
+          allIssues.push(...result.issues);
+          fileResults.push({
+            filePath,
+            success: true,
+            issuesCount: result.issues.length,
+            language: result.language,
+            stats: result.stats
+          });
+          metrics.endFileAnalysis(filePath, result.issues, result.stats);
+          console.error(`✓ ${filePath} - ${result.issues.length} issues (${result.language})`);
+        } else {
+          fileResults.push({
+            filePath,
+            success: false,
+            error: result.error
+          });
+          metrics.addError(result.error, filePath);
+          metrics.endFileAnalysis(filePath, [], {});
+          console.error(`✗ ${filePath} - Error: ${result.error}`);
+        }
       } catch (error) {
-        console.error(`✗ Failed to analyze ${filePath}: ${error.message}`);
+        fileResults.push({
+          filePath,
+          success: false,
+          error: error.message
+        });
+        metrics.addError(error.message, filePath);
+        metrics.endFileAnalysis(filePath, [], {});
+        console.error(`✗ ${filePath} - Unexpected error: ${error.message}`);
       }
     }
     
-    // Output results as JSON
+    // Generate comprehensive results
+    const summary = metrics.getSummary();
     const results = {
       timestamp: new Date().toISOString(),
-      filesAnalyzed: files.length,
-      totalIssues: allIssues.length,
-      issues: allIssues
+      summary: {
+        filesAnalyzed: summary.totalFiles,
+        successfulAnalyses: fileResults.filter(f => f.success).length,
+        failedAnalyses: fileResults.filter(f => !f.success).length,
+        totalIssues: summary.totalIssues,
+        totalDuration: summary.totalDuration,
+        avgTimePerFile: summary.avgTimePerFile,
+        avgIssuesPerFile: summary.avgIssuesPerFile
+      },
+      performance: {
+        errors: summary.errors,
+        warnings: summary.warnings,
+        slowFiles: summary.fileMetrics
+          .filter(f => f.duration > PERFORMANCE_THRESHOLD_MS)
+          .sort((a, b) => b.duration - a.duration)
+      },
+      files: fileResults,
+      issues: allIssues.map(issue => ({
+        ...issue,
+        id: `${issue.file}-${issue.line}-${issue.type}-${Date.now()}`
+      }))
     };
     
+    // Output results as JSON to stdout
     console.log(JSON.stringify(results, null, 2));
-    console.error(`Analysis complete: ${allIssues.length} total issues found`);
+    
+    // Summary to stderr
+    console.error('\n=== Analysis Summary ===');
+    console.error(`Total files: ${summary.totalFiles}`);
+    console.error(`Successful: ${results.summary.successfulAnalyses}`);
+    console.error(`Failed: ${results.summary.failedAnalyses}`);
+    console.error(`Total issues: ${summary.totalIssues}`);
+    console.error(`Duration: ${summary.totalDuration}ms`);
+    console.error(`Average per file: ${summary.avgTimePerFile}ms`);
+    
+    if (summary.errors > 0) {
+      console.error(`\n⚠️  ${summary.errors} errors occurred during analysis`);
+    }
+    
+    if (summary.warnings > 0) {
+      console.error(`⚠️  ${summary.warnings} performance warnings`);
+    }
+    
+    // Exit with appropriate code
+    process.exit(results.summary.failedAnalyses > 0 ? 1 : 0);
     
   } catch (error) {
-    console.error(`Analysis failed: ${error.message}`);
+    metrics.addError(error.message);
+    console.error(`\n❌ Analysis failed: ${error.message}`);
+    console.error('Stack trace:', error.stack);
     process.exit(1);
   }
 }
