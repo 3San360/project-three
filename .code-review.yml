@@ -1,0 +1,80 @@
+# Code Review Action Configuration
+# This file allows you to customize the behavior of the automated code review action
+
+# Analysis Configuration
+analysis:
+  # Maximum function length (lines)
+  max_function_length: 50
+  
+  # Maximum line length (characters)
+  max_line_length: 120
+  
+  # Minimum variable name length
+  min_variable_name_length: 2
+  
+  # Maximum file size to analyze (MB)
+  max_file_size_mb: 5
+  
+  # Code duplication detection
+  duplication:
+    # Minimum lines to consider for duplication
+    min_lines: 5
+    # Minimum characters in sequence to flag
+    min_chars: 50
+
+# Comment Configuration
+comments:
+  # Maximum number of inline comments per PR
+  max_comments_per_pr: 50
+  
+  # Maximum comment length (characters)
+  max_comment_length: 2000
+  
+  # Whether to create summary comments
+  create_summary: true
+  
+  # Whether to create check runs
+  create_checks: true
+
+# Language-specific settings
+languages:
+  javascript:
+    # Enable TypeScript-specific checks
+    typescript_checks: true
+    
+    # Severity levels for different rules
+    rules:
+      no_console: "warning"
+      no_var: "warning"
+      prefer_strict_equality: "warning"
+      no_any_type: "warning"
+      todo_comment: "info"
+  
+  python:
+    # Python-specific rule severities
+    rules:
+      no_bare_except: "warning"
+      no_print: "info"
+      no_global: "warning"
+
+# Performance settings
+performance:
+  # Run analysis functions in parallel
+  parallel_analysis: true
+  
+  # Timeout for individual file analysis (seconds)
+  file_timeout: 30
+  
+  # Skip files larger than threshold
+  skip_large_files: true
+
+# Security settings
+security:
+  # Validate file paths to prevent traversal
+  validate_paths: true
+  
+  # Sanitize all outputs
+  sanitize_output: true
+  
+  # Rate limit API calls
+  rate_limit: true

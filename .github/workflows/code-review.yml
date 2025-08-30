@@ -67,7 +67,9 @@ jobs:
         with:
           node-version: '18'
           cache: 'npm'
-          cache-dependency-path: '.github/actions/code-review/package.json'
+          cache-dependency-path: |
+            .github/actions/code-review/package.json
+            package.json
 
       # Step 3: Setup Python for Python-based linting tools
       - name: 'Setup Python'
@@ -151,9 +153,15 @@ jobs:
           EOF
           fi
           
-          # Install ESLint if not present
-          if ! command -v eslint &> /dev/null; then
-            npm install -g eslint
+          # Install ESLint locally for consistency
+          if ! npm list eslint >/dev/null 2>&1; then
+            npm install eslint --no-save --silent
+          fi
+          
+          # Get the ESLint binary path
+          ESLINT_BIN="./node_modules/.bin/eslint"
+          if [ ! -f "$ESLINT_BIN" ]; then
+            ESLINT_BIN="eslint"
           fi
           
           # Run ESLint on changed JS/TS files
@@ -161,15 +169,26 @@ jobs:
           JS_FILES=$(echo "$CHANGED_FILES" | jq -r '.[] | select(test("\\.(js|ts|jsx|tsx)$"))')
           
           if [ -n "$JS_FILES" ]; then
+            # Create empty results file
+            echo "[]" > eslint-results.json
+            
             echo "$JS_FILES" | while IFS= read -r file; do
               if [ -f "$file" ]; then
-                eslint "$file" --format json >> eslint-results.json 2>/dev/null || true
+                echo "Analyzing $file with ESLint..."
+                $ESLINT_BIN "$file" --format json >> eslint-temp.json 2>/dev/null || true
               fi
             done
+            
+            # Combine all results into a single file
+            if [ -f eslint-temp.json ]; then
+              # Merge all JSON arrays into one
+              jq -s 'add' eslint-temp.json > eslint-results.json 2>/dev/null || echo "[]" > eslint-results.json
+              rm -f eslint-temp.json
+            fi
           fi
           
           # Set output for later steps
-          if [ -f eslint-results.json ]; then
+          if [ -f eslint-results.json ] && [ "$(jq '. | length' eslint-results.json)" -gt 0 ]; then
             echo "results-file=eslint-results.json" >> $GITHUB_OUTPUT
           fi
         shell: bash
@@ -194,15 +213,22 @@ jobs:
           PY_FILES=$(echo "$CHANGED_FILES" | jq -r '.[] | select(test("\\.py$"))')
           
           if [ -n "$PY_FILES" ]; then
+            # Remove any existing results file
+            rm -f flake8-results.jsonl
+            
             echo "$PY_FILES" | while IFS= read -r file; do
               if [ -f "$file" ]; then
-                flake8 "$file" --format='{"file":"%(path)s","line":%(row)d,"column":%(col)d,"severity":"%(type)s","message":"%(text)s","rule":"%(code)s"}' >> flake8-results.jsonl 2>/dev/null || true
+                echo "Analyzing $file with Flake8..."
+                # Use a more robust format and handle errors gracefully
+                flake8 "$file" --format='{"file":"%(path)s","line":%(row)d,"column":%(col)d,"severity":"%(type)s","message":"%(text)s","rule":"%(code)s"}' >> flake8-results.jsonl 2>/dev/null || {
+                  echo "Warning: Flake8 analysis failed for $file" >&2
+                }
               fi
             done
           fi
           
           # Set output for later steps
-          if [ -f flake8-results.jsonl ]; then
+          if [ -f flake8-results.jsonl ] && [ -s flake8-results.jsonl ]; then
             echo "results-file=flake8-results.jsonl" >> $GITHUB_OUTPUT
           fi
         shell: bash
@@ -213,11 +239,24 @@ jobs:
         id: custom-analysis
         run: |
           # Run our custom best practices analysis script
-          node scripts/best-practices-analyzer.js '${{ steps.changed-files.outputs.files }}' > custom-results.json
+          echo "Running custom best practices analysis..."
           
-          if [ -f custom-results.json ]; then
+          # Ensure the script is executable and run it with proper error handling
+          if node scripts/best-practices-analyzer.js '${{ steps.changed-files.outputs.files }}' > custom-results.json 2>custom-errors.log; then
+            echo "Custom analysis completed successfully"
+          else
+            echo "Warning: Custom analysis encountered errors:"
+            cat custom-errors.log >&2
+            # Create empty results file to prevent downstream failures
+            echo '{"timestamp":"","filesAnalyzed":0,"totalIssues":0,"issues":[]}' > custom-results.json
+          fi
+          
+          if [ -f custom-results.json ] && [ -s custom-results.json ]; then
             echo "results-file=custom-results.json" >> $GITHUB_OUTPUT
           fi
+          
+          # Clean up error log
+          rm -f custom-errors.log
         shell: bash
 
       # Step 10: Run our custom GitHub Action to process results and comment

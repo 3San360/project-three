@@ -247,19 +247,29 @@ async function processCustomResults(filePath) {
  * @returns {string} Formatted comment text
  */
 function createCommentText(issue) {
-  let comment = `**${issue.tool}** ${issue.severity === 'error' ? '❌' : '⚠️'}\n\n`;
-  comment += `**Rule:** \`${issue.rule}\`\n\n`;
-  comment += `**Message:** ${issue.message}\n\n`;
+  const severityEmoji = {
+    'error': '❌',
+    'warning': '⚠️',
+    'info': 'ℹ️'
+  };
+  
+  const emoji = severityEmoji[issue.severity] || '⚠️';
+  
+  let comment = `**${issue.tool}** ${emoji}\n\n`;
+  comment += `> **${issue.severity.toUpperCase()}**: ${issue.rule}\n\n`;
+  comment += `${issue.message}\n\n`;
   
   if (issue.suggestion) {
-    comment += `**Suggestion:** ${issue.suggestion}\n\n`;
+    comment += `💡 **Suggestion:** ${issue.suggestion}\n\n`;
   }
   
   // Add helpful links based on the tool and rule
   if (issue.tool === 'ESLint' && issue.rule !== 'unknown') {
-    comment += `[📖 ESLint Rule Documentation](https://eslint.org/docs/rules/${issue.rule})\n`;
+    comment += `📖 [ESLint Rule Documentation](https://eslint.org/docs/rules/${issue.rule})\n`;
   } else if (issue.tool === 'Flake8' && issue.rule !== 'unknown') {
-    comment += `[📖 Flake8 Error Code](https://flake8.pycqa.org/en/latest/user/error-codes.html#error-violation-codes)\n`;
+    comment += `📖 [Flake8 Error Codes](https://flake8.pycqa.org/en/latest/user/error-codes.html)\n`;
+  } else if (issue.tool === 'Custom Analysis') {
+    comment += `🔧 *Automated code quality check*\n`;
   }
   
   return comment;

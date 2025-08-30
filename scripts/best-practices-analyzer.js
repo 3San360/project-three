@@ -28,12 +28,17 @@ const FILE_PATTERNS = {
   javascript: {
     extensions: ['.js', '.jsx', '.ts', '.tsx'],
     patterns: {
-      function: /(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:function|\([^)]*\)\s*=>))/g,
+      function: /(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:function|\([^)]*\)\s*=>)|(\w+)\s*\([^)]*\)\s*\{|(\w+)\s*:\s*(?:function|\([^)]*\)\s*=>))/g,
       variable: /(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g,
       class: /class\s+([A-Z][a-zA-Z0-9_]*)/g,
-      console: /console\.(log|warn|error|info|debug)/g,
+      console: /console\.(log|warn|error|info|debug|trace|table|time|timeEnd)/g,
       arrow: /(\w+)\s*=>\s*/g,
-      comment: /\/\*[\s\S]*?\*\/|\/\/.*$/gm
+      comment: /\/\*[\s\S]*?\*\/|\/\/.*$/gm,
+      import: /import\s+(?:.*\s+from\s+)?['"`]([^'"`]+)['"`]/g,
+      export: /export\s+(?:default\s+)?(?:class|function|const|let|var)\s+(\w+)/g,
+      typescript: /:\s*\w+[\[\]<>]*\s*[=;]/g, // Type annotations
+      interface: /interface\s+([A-Z][a-zA-Z0-9_]*)/g,
+      type: /type\s+([A-Z][a-zA-Z0-9_]*)/g
     }
   },
   python: {
@@ -42,8 +47,11 @@ const FILE_PATTERNS = {
       function: /def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g,
       variable: /([a-zA-Z_][a-zA-Z0-9_]*)\s*=/g,
       class: /class\s+([A-Z][a-zA-Z0-9_]*)/g,
-      import: /(?:from\s+\w+\s+)?import\s+([a-zA-Z_][a-zA-Z0-9_.,\s]*)/g,
-      comment: /#.*$/gm
+      import: /(?:from\s+[\w.]+\s+)?import\s+([a-zA-Z_][a-zA-Z0-9_.,\s]*)/g,
+      comment: /#.*$/gm,
+      docstring: /"""[\s\S]*?"""|'''[\s\S]*?'''/g,
+      decorator: /@\w+/g,
+      lambda: /lambda\s+[^:]*:/g
     }
   }
 };
@@ -465,6 +473,106 @@ function analyzeLanguageSpecific(content, langType, filePath) {
         suggestion: 'Use "let" or "const" instead of "var" for better scoping'
       });
     }
+    
+    // Check for == instead of ===
+    const equalityPattern = /[^=!]==[^=]/g;
+    while ((match = equalityPattern.exec(content)) !== null) {
+      const lineNum = content.substring(0, match.index).split('\n').length;
+      
+      issues.push({
+        file: filePath,
+        line: lineNum,
+        column: 1,
+        severity: 'warning',
+        message: 'Use strict equality (===) instead of loose equality (==)',
+        rule: 'prefer-strict-equality',
+        suggestion: 'Use === for strict equality comparison to avoid type coercion issues'
+      });
+    }
+    
+    // Check for any/unknown types in TypeScript
+    if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) {
+      const anyTypePattern = /:\s*any\b/g;
+      while ((match = anyTypePattern.exec(content)) !== null) {
+        const lineNum = content.substring(0, match.index).split('\n').length;
+        
+        issues.push({
+          file: filePath,
+          line: lineNum,
+          column: 1,
+          severity: 'warning',
+          message: 'Avoid using "any" type',
+          rule: 'no-any-type',
+          suggestion: 'Use specific types instead of "any" to maintain type safety'
+        });
+      }
+    }
+    
+    // Check for TODO/FIXME comments
+    const todoPattern = /\/\/\s*(TODO|FIXME|HACK|XXX):/gi;
+    while ((match = todoPattern.exec(content)) !== null) {
+      const lineNum = content.substring(0, match.index).split('\n').length;
+      
+      issues.push({
+        file: filePath,
+        line: lineNum,
+        column: 1,
+        severity: 'info',
+        message: `${match[1]} comment found`,
+        rule: 'todo-comment',
+        suggestion: 'Consider creating a ticket or issue to track this work'
+      });
+    }
+  }
+  
+  if (langType === 'python' && patterns) {
+    // Check for bare except clauses
+    const bareExceptPattern = /except\s*:/g;
+    while ((match = bareExceptPattern.exec(content)) !== null) {
+      const lineNum = content.substring(0, match.index).split('\n').length;
+      
+      issues.push({
+        file: filePath,
+        line: lineNum,
+        column: 1,
+        severity: 'warning',
+        message: 'Bare except clause detected',
+        rule: 'no-bare-except',
+        suggestion: 'Specify the exception type or use "except Exception:" for better error handling'
+      });
+    }
+    
+    // Check for print statements (prefer logging)
+    const printPattern = /\bprint\s*\(/g;
+    while ((match = printPattern.exec(content)) !== null) {
+      const lineNum = content.substring(0, match.index).split('\n').length;
+      
+      issues.push({
+        file: filePath,
+        line: lineNum,
+        column: 1,
+        severity: 'info',
+        message: 'Print statement found',
+        rule: 'no-print',
+        suggestion: 'Consider using logging module instead of print for better control'
+      });
+    }
+    
+    // Check for global keyword usage
+    const globalPattern = /\bglobal\s+\w+/g;
+    while ((match = globalPattern.exec(content)) !== null) {
+      const lineNum = content.substring(0, match.index).split('\n').length;
+      
+      issues.push({
+        file: filePath,
+        line: lineNum,
+        column: 1,
+        severity: 'warning',
+        message: 'Global variable usage detected',
+        rule: 'no-global',
+        suggestion: 'Avoid global variables; consider passing parameters or using class attributes'
+      });
+    }
   }
   
   return issues;
@@ -476,34 +584,54 @@ function analyzeLanguageSpecific(content, langType, filePath) {
  * @returns {Promise<Array>} Array of issues found
  */
 async function analyzeFile(filePath) {
-  // Validate file path
-  if (!isValidFilePath(filePath)) {
-    console.warn(`Invalid or unsupported file path: ${filePath}`);
+  try {
+    // Validate file path
+    if (!isValidFilePath(filePath)) {
+      console.warn(`Invalid or unsupported file path: ${filePath}`);
+      return [];
+    }
+    
+    const langType = getLanguageType(filePath);
+    if (!langType) {
+      return [];
+    }
+    
+    const content = await safeReadFile(filePath);
+    if (!content) {
+      return [];
+    }
+    
+    // Early return for empty or very small files
+    if (content.trim().length < 10) {
+      return [];
+    }
+    
+    const cleanContent = removeCommentsAndStrings(content, langType);
+    
+    // Run all analysis functions in parallel for better performance
+    const analysisPromises = [
+      analyzeNamingConventions(cleanContent, langType, filePath),
+      analyzeFunctionLength(cleanContent, langType, filePath),
+      analyzeLineLength(content, filePath), // Use original content for line length
+      analyzeCodeDuplication(cleanContent, filePath),
+      analyzeLanguageSpecific(cleanContent, langType, filePath)
+    ];
+    
+    try {
+      const results = await Promise.all(analysisPromises);
+      const allIssues = results.flat();
+      
+      // Sort issues by line number for better readability
+      return allIssues.sort((a, b) => a.line - b.line);
+    } catch (analysisError) {
+      console.error(`Error during analysis of ${filePath}:`, analysisError.message);
+      return [];
+    }
+    
+  } catch (error) {
+    console.error(`Failed to analyze file ${filePath}:`, error.message);
     return [];
   }
-  
-  const langType = getLanguageType(filePath);
-  if (!langType) {
-    return [];
-  }
-  
-  const content = await safeReadFile(filePath);
-  if (!content) {
-    return [];
-  }
-  
-  const cleanContent = removeCommentsAndStrings(content, langType);
-  
-  // Run all analysis functions
-  const allIssues = [
-    ...analyzeNamingConventions(cleanContent, langType, filePath),
-    ...analyzeFunctionLength(cleanContent, langType, filePath),
-    ...analyzeLineLength(content, filePath), // Use original content for line length
-    ...analyzeCodeDuplication(cleanContent, filePath),
-    ...analyzeLanguageSpecific(cleanContent, langType, filePath)
-  ];
-  
-  return allIssues;
 }
 
 /**
