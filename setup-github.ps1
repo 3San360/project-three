@@ -24,7 +24,7 @@ Write-Host "📝 Please create a new repository on GitHub first, then provide th
 Write-Host ""
 
 $repoOwner = Read-Host "Enter your GitHub username/organization"
-$repoName = Read-Host "Enter repository name (e.g., automated-code-review)"
+$repoName = Read-Host "Enter repository name (e.g., automated-code-review-action)"
 
 if (-not $repoOwner -or -not $repoName) {
     Write-Host "❌ Repository owner and name are required!" -ForegroundColor Red

@@ -4,7 +4,7 @@
 
 ### Step 1: Create GitHub Repository
 1. Go to [GitHub](https://github.com) and click "New repository"
-2. Choose a name like `automated-code-review` or `code-review-action`
+2. Choose a name like `automated-code-review-action` or `pr-code-reviewer`
 3. Make it **Public** (required for GitHub Actions in free accounts)
 4. **Don't** initialize with README, .gitignore, or license (we already have them)
 5. Click "Create repository"
