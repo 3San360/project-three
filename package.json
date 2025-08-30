@@ -1,0 +1,34 @@
+{
+  "name": "automated-code-review-action",
+  "version": "1.0.0",
+  "description": "GitHub Action for automated code review with inline comments",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Run npm test in .github/actions/code-review for action tests\"",
+    "analyze": "node scripts/best-practices-analyzer.js",
+    "lint:js": "eslint examples/**/*.js",
+    "lint:py": "flake8 examples/**/*.py"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-username/automated-code-review-action.git"
+  },
+  "keywords": [
+    "github-action",
+    "code-review",
+    "automation",
+    "linting",
+    "pull-request",
+    "code-quality",
+    "best-practices"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/your-username/automated-code-review-action/issues"
+  },
+  "homepage": "https://github.com/your-username/automated-code-review-action#readme",
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  }
+}

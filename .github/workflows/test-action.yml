@@ -1,0 +1,115 @@
+# Test workflow for the code review action
+# This workflow tests the code review action on the example files
+
+name: 'Test Code Review Action'
+
+on:
+  workflow_dispatch:  # Allow manual triggering for testing
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'examples/**'
+      - '.github/actions/code-review/**'
+      - 'scripts/**'
+
+permissions:
+  contents: read
+  issues: write
+  checks: write
+
+jobs:
+  test-action:
+    name: 'Test Code Review'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 'Checkout Repository'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 'Setup Node.js'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: '.github/actions/code-review/package.json'
+
+      - name: 'Setup Python'
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: 'Install Python Dependencies'
+        run: |
+          pip install --upgrade pip
+          pip install flake8 black isort pylint
+
+      - name: 'Install Action Dependencies'
+        working-directory: .github/actions/code-review
+        run: npm ci --production
+
+      - name: 'Test Custom Analyzer'
+        run: |
+          # Test the custom analyzer with our example files
+          node scripts/best-practices-analyzer.js '["examples/bad-example.js", "examples/bad-example.py"]' > test-results.json
+          
+          # Verify the results
+          if [ ! -f test-results.json ]; then
+            echo "❌ Custom analyzer failed to create results file"
+            exit 1
+          fi
+          
+          # Check if issues were found
+          ISSUES_COUNT=$(jq '.totalIssues' test-results.json)
+          if [ "$ISSUES_COUNT" -eq 0 ]; then
+            echo "❌ No issues found in example files (expected to find issues)"
+            exit 1
+          fi
+          
+          echo "✅ Custom analyzer found $ISSUES_COUNT issues in example files"
+
+      - name: 'Test ESLint'
+        run: |
+          # Install ESLint
+          npm install -g eslint
+          
+          # Test ESLint on JavaScript example
+          eslint examples/bad-example.js --format json > eslint-test.json || true
+          
+          # Verify results
+          if [ ! -f eslint-test.json ]; then
+            echo "❌ ESLint failed to create results file"
+            exit 1
+          fi
+          
+          echo "✅ ESLint analysis completed"
+
+      - name: 'Test Flake8'
+        run: |
+          # Test Flake8 on Python example
+          flake8 examples/bad-example.py --format='{"file":"%(path)s","line":%(row)d,"column":%(col)d,"severity":"%(type)s","message":"%(text)s","rule":"%(code)s"}' > flake8-test.jsonl || true
+          
+          # Verify results
+          if [ ! -f flake8-test.jsonl ]; then
+            echo "❌ Flake8 failed to create results file"
+            exit 1
+          fi
+          
+          echo "✅ Flake8 analysis completed"
+
+      - name: 'Create Test Summary'
+        run: |
+          echo "## 🧪 Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Custom Analyzer Results:" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          jq '.' test-results.json >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ All tests passed successfully!" >> $GITHUB_STEP_SUMMARY
+
+      - name: 'Cleanup Test Files'
+        if: always()
+        run: |
+          rm -f test-results.json eslint-test.json flake8-test.jsonl

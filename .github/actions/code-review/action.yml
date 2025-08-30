@@ -1,0 +1,52 @@
+# Custom GitHub Action for Processing Code Review Results
+# This action processes linting results and creates inline PR comments
+# with security-focused design and proper error handling
+
+name: 'Code Review Processor'
+description: 'Processes linting results and creates inline comments on pull requests'
+author: 'Automated Code Review System'
+
+# Define inputs with proper validation and security considerations
+inputs:
+  github-token:
+    description: 'GitHub token for API access'
+    required: true
+    # Security: Mark as secret to prevent logging
+  eslint-results:
+    description: 'Path to ESLint results file'
+    required: false
+    default: ''
+  flake8-results:
+    description: 'Path to Flake8 results file'
+    required: false
+    default: ''
+  custom-results:
+    description: 'Path to custom analysis results file'
+    required: false
+    default: ''
+  pr-number:
+    description: 'Pull request number'
+    required: true
+  base-sha:
+    description: 'Base commit SHA for the PR'
+    required: true
+  head-sha:
+    description: 'Head commit SHA for the PR'
+    required: true
+
+# Define outputs for downstream actions
+outputs:
+  issues-found:
+    description: 'Number of issues found'
+  summary:
+    description: 'Summary of the review'
+
+# Use Node.js runtime for the action
+runs:
+  using: 'node18'
+  main: 'index.js'
+
+# Branding for the GitHub Marketplace (optional)
+branding:
+  icon: 'check-circle'
+  color: 'green'

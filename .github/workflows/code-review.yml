@@ -1,0 +1,318 @@
+# GitHub Action: Automated Code Review for Pull Requests
+# This workflow automatically reviews code changes in pull requests and provides
+# inline comments for code quality issues, best practices violations, and suggestions.
+#
+# Security considerations:
+# - Uses least privilege permissions
+# - No sensitive data in outputs or logs
+# - Secure handling of GitHub tokens
+# - Read-only access to repository content
+
+name: 'Automated Code Review'
+
+# Trigger on pull request events
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    # Only run on specific file types to optimize performance
+    paths:
+      - '**/*.js'
+      - '**/*.ts'
+      - '**/*.jsx'
+      - '**/*.tsx'
+      - '**/*.py'
+      - '**/*.java'
+      - '**/*.go'
+      - '**/*.rs'
+      - '**/*.php'
+      - '**/*.rb'
+
+# Permissions required for the workflow
+# Using minimal permissions following security best practices
+permissions:
+  contents: read          # Read repository contents
+  pull-requests: write    # Comment on pull requests
+  checks: write          # Create check runs
+  statuses: write        # Update commit statuses
+
+# Environment variables for the workflow
+env:
+  # Disable npm audit and fund messages for cleaner output
+  npm_config_audit: false
+  npm_config_fund: false
+
+jobs:
+  code-review:
+    name: 'Automated Code Review'
+    runs-on: ubuntu-latest
+    
+    # Security: Prevent running on forks to avoid potential security issues
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    
+    steps:
+      # Step 1: Checkout the repository with full history for better analysis
+      - name: 'Checkout Repository'
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history for better diff analysis
+          fetch-depth: 0
+          # Use the PR head ref for analysis
+          ref: ${{ github.event.pull_request.head.sha }}
+          # Security: Use provided token, don't expose custom tokens
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Step 2: Setup Node.js for JavaScript-based tools and our custom action
+      - name: 'Setup Node.js'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: '.github/actions/code-review/package.json'
+
+      # Step 3: Setup Python for Python-based linting tools
+      - name: 'Setup Python'
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # Step 4: Install Python linting dependencies
+      - name: 'Install Python Dependencies'
+        run: |
+          # Install Python linting tools
+          pip install --upgrade pip
+          pip install flake8 black isort pylint bandit safety
+        shell: bash
+
+      # Step 5: Install Node.js dependencies for our custom action
+      - name: 'Install Action Dependencies'
+        working-directory: .github/actions/code-review
+        run: |
+          # Install dependencies for our custom GitHub Action
+          npm ci --production
+        shell: bash
+
+      # Step 6: Get list of changed files for targeted analysis
+      - name: 'Get Changed Files'
+        id: changed-files
+        run: |
+          # Get list of changed files in the PR
+          # Using git diff to get accurate file changes
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          
+          # Get changed files and filter by supported extensions
+          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMRT "$BASE_SHA" "$HEAD_SHA" | \
+            grep -E '\.(js|ts|jsx|tsx|py|java|go|rs|php|rb)$' || true)
+          
+          # Convert to JSON array for easier processing
+          if [ -n "$CHANGED_FILES" ]; then
+            FILES_JSON=$(echo "$CHANGED_FILES" | jq -R -s -c 'split("\n")[:-1]')
+            echo "files=$FILES_JSON" >> $GITHUB_OUTPUT
+            echo "has-files=true" >> $GITHUB_OUTPUT
+          else
+            echo "files=[]" >> $GITHUB_OUTPUT
+            echo "has-files=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      # Step 7: Run ESLint for JavaScript/TypeScript files
+      - name: 'Run ESLint Analysis'
+        if: steps.changed-files.outputs.has-files == 'true'
+        id: eslint
+        run: |
+          # Create a default ESLint configuration if none exists
+          if [ ! -f .eslintrc.js ] && [ ! -f .eslintrc.json ] && [ ! -f eslint.config.js ]; then
+            cat > .eslintrc.json << 'EOF'
+          {
+            "env": {
+              "browser": true,
+              "es2021": true,
+              "node": true
+            },
+            "extends": [
+              "eslint:recommended"
+            ],
+            "parserOptions": {
+              "ecmaVersion": 12,
+              "sourceType": "module"
+            },
+            "rules": {
+              "no-unused-vars": "error",
+              "no-console": "warn",
+              "max-len": ["error", { "code": 120 }],
+              "complexity": ["error", 10],
+              "max-lines-per-function": ["error", 50],
+              "no-duplicate-imports": "error",
+              "prefer-const": "error",
+              "no-var": "error"
+            }
+          }
+          EOF
+          fi
+          
+          # Install ESLint if not present
+          if ! command -v eslint &> /dev/null; then
+            npm install -g eslint
+          fi
+          
+          # Run ESLint on changed JS/TS files
+          CHANGED_FILES='${{ steps.changed-files.outputs.files }}'
+          JS_FILES=$(echo "$CHANGED_FILES" | jq -r '.[] | select(test("\\.(js|ts|jsx|tsx)$"))')
+          
+          if [ -n "$JS_FILES" ]; then
+            echo "$JS_FILES" | while IFS= read -r file; do
+              if [ -f "$file" ]; then
+                eslint "$file" --format json >> eslint-results.json 2>/dev/null || true
+              fi
+            done
+          fi
+          
+          # Set output for later steps
+          if [ -f eslint-results.json ]; then
+            echo "results-file=eslint-results.json" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      # Step 8: Run Flake8 for Python files
+      - name: 'Run Flake8 Analysis'
+        if: steps.changed-files.outputs.has-files == 'true'
+        id: flake8
+        run: |
+          # Create Flake8 configuration
+          cat > .flake8 << 'EOF'
+          [flake8]
+          max-line-length = 120
+          max-complexity = 10
+          max-function-length = 50
+          ignore = E203, E501, W503
+          exclude = .git,__pycache__,venv,env,.env
+          EOF
+          
+          # Run Flake8 on changed Python files
+          CHANGED_FILES='${{ steps.changed-files.outputs.files }}'
+          PY_FILES=$(echo "$CHANGED_FILES" | jq -r '.[] | select(test("\\.py$"))')
+          
+          if [ -n "$PY_FILES" ]; then
+            echo "$PY_FILES" | while IFS= read -r file; do
+              if [ -f "$file" ]; then
+                flake8 "$file" --format='{"file":"%(path)s","line":%(row)d,"column":%(col)d,"severity":"%(type)s","message":"%(text)s","rule":"%(code)s"}' >> flake8-results.jsonl 2>/dev/null || true
+              fi
+            done
+          fi
+          
+          # Set output for later steps
+          if [ -f flake8-results.jsonl ]; then
+            echo "results-file=flake8-results.jsonl" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      # Step 9: Run custom best practices analysis
+      - name: 'Run Custom Best Practices Analysis'
+        if: steps.changed-files.outputs.has-files == 'true'
+        id: custom-analysis
+        run: |
+          # Run our custom best practices analysis script
+          node scripts/best-practices-analyzer.js '${{ steps.changed-files.outputs.files }}' > custom-results.json
+          
+          if [ -f custom-results.json ]; then
+            echo "results-file=custom-results.json" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      # Step 10: Run our custom GitHub Action to process results and comment
+      - name: 'Process Results and Comment'
+        uses: ./.github/actions/code-review
+        with:
+          # Pass the GitHub token securely
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Pass file paths securely without exposing in logs
+          eslint-results: ${{ steps.eslint.outputs.results-file || '' }}
+          flake8-results: ${{ steps.flake8.outputs.results-file || '' }}
+          custom-results: ${{ steps.custom-analysis.outputs.results-file || '' }}
+          # PR context for commenting
+          pr-number: ${{ github.event.pull_request.number }}
+          base-sha: ${{ github.event.pull_request.base.sha }}
+          head-sha: ${{ github.event.pull_request.head.sha }}
+
+      # Step 11: Create check run with summary
+      - name: 'Create Check Run'
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Create a check run with the results summary
+            const fs = require('fs');
+            
+            let summary = '## Code Review Summary\n\n';
+            let conclusion = 'success';
+            let issueCount = 0;
+            
+            // Check if we have any results files
+            const resultFiles = [
+              '${{ steps.eslint.outputs.results-file }}',
+              '${{ steps.flake8.outputs.results-file }}',
+              '${{ steps.custom-analysis.outputs.results-file }}'
+            ].filter(file => file && fs.existsSync(file));
+            
+            if (resultFiles.length === 0) {
+              summary += '✅ No issues found in the changed files.\n';
+            } else {
+              // Count issues from each tool
+              resultFiles.forEach(file => {
+                try {
+                  const content = fs.readFileSync(file, 'utf8');
+                  if (file.includes('eslint')) {
+                    const results = JSON.parse(content);
+                    const errors = results.reduce((sum, result) => sum + result.errorCount + result.warningCount, 0);
+                    if (errors > 0) {
+                      summary += `- ESLint found ${errors} issues\n`;
+                      issueCount += errors;
+                    }
+                  } else if (file.includes('flake8')) {
+                    const lines = content.split('\n').filter(line => line.trim());
+                    if (lines.length > 0) {
+                      summary += `- Flake8 found ${lines.length} issues\n`;
+                      issueCount += lines.length;
+                    }
+                  } else if (file.includes('custom')) {
+                    const results = JSON.parse(content);
+                    if (results.issues && results.issues.length > 0) {
+                      summary += `- Custom analysis found ${results.issues.length} issues\n`;
+                      issueCount += results.issues.length;
+                    }
+                  }
+                } catch (error) {
+                  console.error(`Error processing ${file}:`, error);
+                }
+              });
+              
+              if (issueCount > 0) {
+                conclusion = 'failure';
+                summary += `\n**Total issues found: ${issueCount}**\n`;
+                summary += '\nPlease review the inline comments for specific suggestions.';
+              }
+            }
+            
+            // Create the check run
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'Automated Code Review',
+              head_sha: '${{ github.event.pull_request.head.sha }}',
+              status: 'completed',
+              conclusion: conclusion,
+              output: {
+                title: 'Code Review Results',
+                summary: summary
+              }
+            });
+
+      # Step 12: Clean up temporary files (security best practice)
+      - name: 'Cleanup Temporary Files'
+        if: always()
+        run: |
+          # Remove temporary result files to avoid data leakage
+          rm -f eslint-results.json flake8-results.jsonl custom-results.json .eslintrc.json .flake8
+        shell: bash
