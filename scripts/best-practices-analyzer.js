@@ -435,6 +435,7 @@ function analyzeNamingConventions(content, langType, filePath) {
           file: filePath,
           line: lineNum,
           column: 1,
+          type: 'naming',
           severity: 'warning',
           message: `Variable '${varName}' has a non-descriptive single letter name`,
           rule: 'naming-convention-descriptive',
@@ -648,6 +649,7 @@ function analyzeLanguageSpecific(content, langType, filePath) {
         file: filePath,
         line: lineNum,
         column: 1,
+        type: 'language-specific',
         severity: 'warning',
         message: `Console statement found: ${match[0]}`,
         rule: 'no-console',
@@ -662,9 +664,9 @@ function analyzeLanguageSpecific(content, langType, filePath) {
       
       issues.push({
         file: filePath,
-            type: 'language-specific',
         line: lineNum,
         column: 1,
+        type: 'language-specific',
         severity: 'warning',
         message: 'Use of "var" keyword detected',
         rule: 'no-var',
@@ -679,9 +681,9 @@ function analyzeLanguageSpecific(content, langType, filePath) {
       
       issues.push({
         file: filePath,
-            type: 'language-specific',
         line: lineNum,
         column: 1,
+        type: 'language-specific',
         severity: 'warning',
         message: 'Use strict equality (===) instead of loose equality (==)',
         rule: 'prefer-strict-equality',
@@ -697,9 +699,9 @@ function analyzeLanguageSpecific(content, langType, filePath) {
         
         issues.push({
           file: filePath,
-            type: 'language-specific',
           line: lineNum,
           column: 1,
+          type: 'language-specific',
           severity: 'warning',
           message: 'Avoid using "any" type',
           rule: 'no-any-type',
@@ -750,9 +752,9 @@ function analyzeLanguageSpecific(content, langType, filePath) {
       
       issues.push({
         file: filePath,
-            type: 'language-specific',
         line: lineNum,
         column: 1,
+        type: 'language-specific',
         severity: 'info',
         message: 'Print statement found',
         rule: 'no-print',
@@ -767,9 +769,9 @@ function analyzeLanguageSpecific(content, langType, filePath) {
       
       issues.push({
         file: filePath,
-            type: 'language-specific',
         line: lineNum,
         column: 1,
+        type: 'language-specific',
         severity: 'warning',
         message: 'Global variable usage detected',
         rule: 'no-global',
