@@ -1,13 +1,25 @@
 {
   "name": "automated-code-review-action",
-  "version": "1.1.0",
-  "description": "GitHub Action for automated code review with inline comments",
-  "main": "index.js",
+  "version": "1.2.0",
+  "description": "GitHub Action for automated code review with multi-language support and security-focused design",
+  "main": ".github/actions/code-review/index.js",
   "scripts": {
-    "test": "echo \"Run npm test in .github/actions/code-review for action tests\"",
+    "test": "jest tests/comprehensive.test.js --verbose",
+    "test:analyzer": "jest tests/analyzer.test.js --verbose",
+    "test:all": "jest --verbose",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "analyze": "node scripts/best-practices-analyzer.js",
+    "lint": "eslint .github/actions/code-review/index.js scripts/best-practices-analyzer.js",
+    "lint:fix": "eslint --fix .github/actions/code-review/index.js scripts/best-practices-analyzer.js",
     "lint:js": "eslint examples/**/*.js",
-    "lint:py": "flake8 examples/**/*.py"
+    "lint:py": "flake8 examples/**/*.py",
+    "setup": "node scripts/setup.js",
+    "validate": "node scripts/config-helper.js validate",
+    "security-check": "npm audit --audit-level=moderate",
+    "performance-test": "node tests/performance.js",
+    "integration-test": "node tests/integration.js",
+    "prepare": "cd .github/actions/code-review && npm install"
   },
   "repository": {
     "type": "git",
@@ -20,7 +32,18 @@
     "linting",
     "pull-request",
     "code-quality",
-    "best-practices"
+    "best-practices",
+    "multi-language",
+    "security",
+    "javascript",
+    "python",
+    "typescript",
+    "java",
+    "go",
+    "rust",
+    "eslint",
+    "flake8",
+    "ci-cd"
   ],
   "author": "3San360",
   "license": "MIT",
@@ -30,6 +53,29 @@
   "homepage": "https://github.com/3San360/automated-code-review-action#readme",
   "devDependencies": {
     "eslint": "^8.57.0",
-    "yaml": "^2.3.4"
+    "yaml": "^2.3.4",
+    "jest": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverageFrom": [
+      "scripts/**/*.js",
+      ".github/actions/**/*.js",
+      "!**/node_modules/**",
+      "!**/tests/**"
+    ],
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "html"
+    ],
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
+    "verbose": true
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
   }
 }
