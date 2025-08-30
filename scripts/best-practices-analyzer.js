@@ -270,8 +270,14 @@ async function safeReadFile(filePath) {
     // Check for empty files
     if (stats.size === 0) {
       return { 
-        success: false, 
-        error: 'File is empty',
+        success: true, 
+        issues: [],
+        language: getLanguageType(filePath),
+        stats: {
+          size: 0,
+          modified: stats.mtime,
+          lines: 0
+        },
         filePath 
       };
     }
@@ -489,6 +495,7 @@ function analyzeFunctionLength(content, langType, filePath) {
             file: filePath,
             line: startLine,
             column: 1,
+            type: 'function-length',
             severity: 'warning',
             message: `Function is too long (${funcLines} lines, max ${MAX_FUNCTION_LENGTH})`,
             rule: 'function-length',
@@ -528,6 +535,7 @@ function analyzeFunctionLength(content, langType, filePath) {
           file: filePath,
           line: startLine,
           column: 1,
+          type: 'function-length',
           severity: 'warning',
           message: `Function is too long (${funcLines} lines, max ${MAX_FUNCTION_LENGTH})`,
           rule: 'function-length',
@@ -556,6 +564,7 @@ function analyzeLineLength(content, filePath) {
         file: filePath,
         line: index + 1,
         column: MAX_LINE_LENGTH + 1,
+        type: 'line-length',
         severity: 'warning',
         message: `Line too long (${line.length} characters, max ${MAX_LINE_LENGTH})`,
         rule: 'line-length',
@@ -603,6 +612,7 @@ function analyzeCodeDuplication(content, filePath) {
           file: filePath,
           line: lineNum,
           column: 1,
+          type: 'duplication',
           severity: 'warning',
           message: `Potential code duplication detected (also found at lines: ${locations.filter(l => l !== lineNum).join(', ')})`,
           rule: 'code-duplication',
@@ -652,6 +662,7 @@ function analyzeLanguageSpecific(content, langType, filePath) {
       
       issues.push({
         file: filePath,
+            type: 'language-specific',
         line: lineNum,
         column: 1,
         severity: 'warning',
@@ -668,6 +679,7 @@ function analyzeLanguageSpecific(content, langType, filePath) {
       
       issues.push({
         file: filePath,
+            type: 'language-specific',
         line: lineNum,
         column: 1,
         severity: 'warning',
@@ -685,6 +697,7 @@ function analyzeLanguageSpecific(content, langType, filePath) {
         
         issues.push({
           file: filePath,
+            type: 'language-specific',
           line: lineNum,
           column: 1,
           severity: 'warning',
@@ -720,6 +733,7 @@ function analyzeLanguageSpecific(content, langType, filePath) {
       
       issues.push({
         file: filePath,
+            type: 'language-specific',
         line: lineNum,
         column: 1,
         severity: 'warning',
@@ -736,6 +750,7 @@ function analyzeLanguageSpecific(content, langType, filePath) {
       
       issues.push({
         file: filePath,
+            type: 'language-specific',
         line: lineNum,
         column: 1,
         severity: 'info',
@@ -752,6 +767,7 @@ function analyzeLanguageSpecific(content, langType, filePath) {
       
       issues.push({
         file: filePath,
+            type: 'language-specific',
         line: lineNum,
         column: 1,
         severity: 'warning',
